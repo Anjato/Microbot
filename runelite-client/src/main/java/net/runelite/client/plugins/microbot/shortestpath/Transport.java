@@ -1,21 +1,28 @@
 package net.runelite.client.plugins.microbot.shortestpath;
 
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.Microbot;
+import net.runelite.client.plugins.microbot.util.poh.PohTeleports;
+import net.runelite.client.plugins.microbot.util.poh.PohTransport;
+import net.runelite.client.plugins.microbot.util.poh.data.HouseStyle;
+import net.runelite.client.plugins.microbot.util.poh.data.MountedMythical;
+import net.runelite.client.plugins.microbot.util.poh.data.NexusPortal;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
  * This class represents a travel point between two WorldPoints.
  */
+@Slf4j
 public class Transport {
     //START microbot variables
     @Getter
@@ -25,7 +32,6 @@ public class Transport {
     private int objectId;
     @Getter
     private String name;
-    //END microbot variables
 
     /**
      * A location placeholder different from null to use for permutation transports
@@ -107,7 +113,7 @@ public class Transport {
      */
     @Getter
     private final Set<TransportVarPlayer> varplayers = new HashSet<>();
-    
+
     @Getter
     private String currencyName = "";
     @Getter
@@ -119,11 +125,13 @@ public class Transport {
     @Getter
     private boolean isMembers = false;
 
+
+
     /**
      * Creates a new transport from an origin-only transport
      * and a destination-only transport, and merges requirements
      */
-    Transport(Transport origin, Transport destination) {
+    public Transport(Transport origin, Transport destination) {
         this.origin = origin.origin;
         this.destination = destination.destination;
 
@@ -159,7 +167,7 @@ public class Transport {
 
         this.varplayers.addAll(origin.varplayers);
         this.varplayers.addAll(destination.varplayers);
-        
+
         //START microbot variables
         this.name = origin.getName();
         this.objectId = origin.getObjectId();
@@ -168,6 +176,50 @@ public class Transport {
         this.currencyAmount = origin.getCurrencyAmount();
         this.isMembers = origin.isMembers;
         //END microbot variables
+    }
+
+    /**
+     * Base Transport constructor
+     */
+    public Transport(WorldPoint origin, WorldPoint destination, String displayInfo, TransportType transportType, boolean isMember, int duration) {
+        this.origin = origin;
+        this.destination = destination;
+        this.displayInfo = displayInfo;
+        this.type = transportType;
+        this.isMembers = isMember;
+        this.duration = duration;
+    }
+
+    /**
+     * Object interaction Transport constructor
+     */
+    public Transport(WorldPoint origin, WorldPoint destination, String displayInfo, TransportType transportType, boolean isMember, String action, String target, int objectId) {
+        this(origin, destination, displayInfo, transportType, isMember, 1);
+        this.action = action;
+        this.name = target;
+        this.objectId = objectId;
+    }
+
+    /**
+     * Transport constructor with item requirements
+     */
+    public Transport(WorldPoint destination, String displayInfo, TransportType transportType, boolean isMember, int maxWildernessLevel, Set<Set<Integer>> itemIdRequirements) {
+        this(null, destination, displayInfo, transportType, isMember, 1);
+        this.maxWildernessLevel = maxWildernessLevel;
+        this.itemIdRequirements = itemIdRequirements != null ? new HashSet<>(itemIdRequirements) : new HashSet<>();
+    }
+
+    /**
+     * Transport constructor with skill requirements
+     */
+    public Transport(WorldPoint destination, String displayInfo, TransportType transportType, boolean isMember, int maxWildernessLevel, Map<Skill, Integer> skillRequirement) {
+        this(null, destination, displayInfo, transportType, isMember, 1);
+        this.maxWildernessLevel = maxWildernessLevel;
+        if (skillRequirement != null) {
+            for (Map.Entry<Skill, Integer> entry : skillRequirement.entrySet()) {
+                this.skillLevels[entry.getKey().ordinal()] = entry.getValue();
+            }
+        }
     }
 
     Transport(Map<String, String> fieldMap, TransportType transportType) {
@@ -197,7 +249,6 @@ public class Transport {
         }
 
         //START microbot variables
-
         if ((value = fieldMap.get("menuOption menuTarget objectID")) != null && !value.trim().isEmpty()) {
             value = value.trim(); // Remove leading/trailing spaces
 
@@ -215,7 +266,7 @@ public class Transport {
                 System.out.println("Skipped invalid value: " + value);
             }
         }
-        
+
         if ((value = fieldMap.get("Currency")) != null) {
             // Split the string by space
             String[] parts = value.split(DELIM);
@@ -288,7 +339,7 @@ public class Transport {
         if ((value = fieldMap.get("Wilderness level")) != null && !value.trim().isEmpty()) {
             this.maxWildernessLevel = Integer.parseInt(value);
         }
-        
+
         if ((value = fieldMap.get("isMembers")) != null && !value.trim().isEmpty()) {
             this.isMembers = "Y".equals(value.trim()) || "yes".equals(value.trim().toLowerCase());
         }
@@ -448,6 +499,7 @@ public class Transport {
 
 
                 Transport transport = new Transport(fieldMap, transportType);
+
                 newTransports.add(transport);
 
             }
@@ -529,6 +581,7 @@ public class Transport {
         addTransports(transports, "wilderness_obelisks.tsv", TransportType.WILDERNESS_OBELISK);
         addTransports(transports, "magic_carpets.tsv", TransportType.MAGIC_CARPET);
         addTransports(transports, "npcs.tsv", TransportType.NPC);
+        System.out.println("Loaded " + transports.size() + " transports");
         return transports;
     }
 

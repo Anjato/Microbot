@@ -9,7 +9,7 @@ import net.runelite.client.plugins.microbot.aiofighter.enums.State;
 import net.runelite.client.plugins.microbot.inventorysetups.InventorySetup;
 import net.runelite.client.plugins.microbot.util.magic.Rs2CombatSpells;
 import net.runelite.client.plugins.microbot.util.misc.SpecialAttackWeaponEnum;
-import net.runelite.client.plugins.microbot.util.slayer.enums.SlayerMaster;
+import net.runelite.client.plugins.microbot.util.skills.slayer.enums.SlayerMaster;
 
 @ConfigGroup(AIOFighterConfig.GROUP)
 @ConfigInformation("1. Make sure to place the cannon first before starting the plugin. <br />" +
@@ -246,7 +246,7 @@ public interface AIOFighterConfig extends Config {
             section = lootSection
     )
     default String listOfItemsToLoot() {
-        return "bones,ashes";
+        return "brimstone key";
     }
 
     @ConfigItem(
@@ -322,7 +322,7 @@ public interface AIOFighterConfig extends Config {
     @ConfigItem(
             keyName = "Bury Bones",
             name = "Bury Bones",
-            description = "Picks up and Bury Bones",
+            description = "Picks up and Bury Bones. Casts Sinister Offering if possible.",
             position = 96,
             section = lootSection
     )
@@ -332,8 +332,8 @@ public interface AIOFighterConfig extends Config {
 
     @ConfigItem(
             keyName = "Scatter",
-            name = "Scatter",
-            description = "Picks up and Scatter ashes",
+            name = "Scatter Ashes",
+            description = "Picks up and Scatter ashes. Casts Demonic Offering if possible.",
             position = 97,
             section = lootSection
     )
@@ -397,6 +397,31 @@ public interface AIOFighterConfig extends Config {
             section = lootSection
     )
     default boolean eatFoodForSpace() { return false; }
+
+    @ConfigItem(
+            keyName = "waitForLoot",
+            name = "Wait for Loot",
+            description = "Wait for loot to appear before attacking next NPC",
+            position = 103,
+            section = lootSection,
+            hidden = true
+    )
+    default boolean toggleWaitForLoot() {
+        return false;
+    }
+
+    @Range(min = 1, max = 10)
+    @ConfigItem(
+            keyName = "lootWaitTimeout",
+            name = "Loot Wait Timeout (s)",
+            description = "Seconds to wait for loot before resuming combat (1-10)",
+            position = 104,
+            section = lootSection,
+            hidden = true
+    )
+    default int lootWaitTimeout() {
+        return 6;
+    }
 
     //set center tile manually
     @ConfigItem(
@@ -466,7 +491,7 @@ public interface AIOFighterConfig extends Config {
             keyName = "useMagic",
             name = "Use Magic",
             description = "Use Magic",
-            position = 1,
+            position = 0,
             section = skillingSection
     )
     default boolean useMagic() {
@@ -477,11 +502,22 @@ public interface AIOFighterConfig extends Config {
             keyName = "magicSpell",
             name = "Auto Cast Spell",
             description = "Magic Auto Cast Spell",
-            position = 2,
+            position = 1,
             section = skillingSection
     )
     default Rs2CombatSpells magicSpell() {
         return Rs2CombatSpells.WIND_STRIKE;
+    }
+
+    @ConfigItem(
+            keyName = "reanimateHeads",
+            name = "Reanimate Ensouled Heads",
+            description = "Enable to loot and reanimate ensouled heads with Arceeus",
+            position = 2,
+            section = skillingSection
+    )
+    default boolean reanimateEnsouledHeads() {
+        return false;
     }
 
     //Avoid Controlled attack style
@@ -628,6 +664,17 @@ public interface AIOFighterConfig extends Config {
     )
     default int minFreeSlots() {
         return 0;
+    }
+
+    @ConfigItem(
+            keyName = "usePoolAtFerox",
+            name = "Use Pool at Ferox",
+            description = "Use Pool of Restoration at Ferox Enclave after banking if HP/Prayer below 100% or Run below 90%",
+            position = 10,
+            section = banking
+    )
+    default boolean usePoolAtFerox() {
+        return false;
     }
     // Safety section
     @ConfigItem(

@@ -4,8 +4,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.runelite.api.*;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.client.Notifier;
-import net.runelite.client.config.Notification;
 import net.runelite.client.plugins.microbot.farmTreeRun.enums.FarmTreeRunState;
 import net.runelite.client.plugins.microbot.farmTreeRun.enums.FruitTreeEnum;
 import net.runelite.client.plugins.microbot.farmTreeRun.enums.HardTreeEnums;
@@ -16,7 +14,6 @@ import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.antiban.enums.ActivityIntensity;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
-import net.runelite.client.plugins.microbot.util.bank.enums.BankLocation;
 import net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
@@ -29,9 +26,7 @@ import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 
 import javax.inject.Inject;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
@@ -87,7 +82,10 @@ public class FarmTreeRunScript extends Script {
         LLETYA_FRUIT_TREE_PATCH(26579, new WorldPoint(2345, 3163, 0), TreeKind.FRUIT_TREE, 1, 0),
         FOSSIL_TREE_PATCH_A(30482, new WorldPoint(3718, 3835, 0), TreeKind.HARD_TREE, 1, 0),
         FOSSIL_TREE_PATCH_B(30480, new WorldPoint(3709, 3836, 0), TreeKind.HARD_TREE, 1, 0),
-        FOSSIL_TREE_PATCH_C(30481, new WorldPoint(3701, 3840, 0), TreeKind.HARD_TREE, 1, 0);
+        FOSSIL_TREE_PATCH_C(30481, new WorldPoint(3701, 3840, 0), TreeKind.HARD_TREE, 1, 0),
+        AUBURNVALE_TREE_PATCH(56953, new WorldPoint(1365, 3320, 0), TreeKind.TREE, 1, 0),
+        KASTORI_FRUIT_TREE_PATCH(56955, new WorldPoint(1349, 3058, 0), TreeKind.FRUIT_TREE, 1, 12765),
+        AVIUM_SAVANNAH_HARDWOOD_PATCH(50692, new WorldPoint(1684, 2974, 0), TreeKind.HARD_TREE,1,0);
 
         private final int id;
         private final WorldPoint location;
@@ -301,9 +299,46 @@ public class FarmTreeRunScript extends Script {
 							if (!handledPatch)
 								return;
 						}
-						botStatus = FINISHED;
+						botStatus = HANDLE_AUBURNVALE_TREE_PATCH;
 						break;
-					case FINISHED:
+
+                    case HANDLE_AUBURNVALE_TREE_PATCH: {
+                        patch = Patch.AUBURNVALE_TREE_PATCH;
+                        if (config.auburnTreePatch()) {
+                            if (walkToLocation(patch.getLocation())) {
+                                handledPatch = handlePatch(config, patch);
+                            }
+                            if (!handledPatch) return;  // stay in this state until done
+                        }
+                        botStatus = HANDLE_KASTORI_FRUIT_TREE_PATCH;
+                        break;
+                    }
+                    case HANDLE_KASTORI_FRUIT_TREE_PATCH: {
+                        patch = Patch.KASTORI_FRUIT_TREE_PATCH;
+                        if (config.kastoriFruitTreePatch()) {
+                            if (walkToLocation(patch.getLocation())) {
+                                handledPatch = handlePatch(config, patch);
+                            }
+                            if (!handledPatch) return;
+                        }
+                        botStatus = HANDLE_AVIUM_SAVANNAH_HARDWOOD_PATCH;
+                        break;
+                    }
+
+                    case HANDLE_AVIUM_SAVANNAH_HARDWOOD_PATCH: {
+                        patch = Patch.AVIUM_SAVANNAH_HARDWOOD_PATCH;
+                        if (config.aviumSavannahHardwoodPatch()) {
+                            if (walkToLocation(patch.getLocation())) {
+                                handledPatch = handlePatch(config, patch);
+                            }
+                            if (!handledPatch) return;
+                        }
+                        botStatus = FINISHED;
+                        break;
+                    }
+
+
+                    case FINISHED:
 						Microbot.getClientThread().runOnClientThreadOptional(() -> {
 								Microbot.getClient().addChatMessage(ChatMessageType.ENGINE, "", "Tree run completed.", "Acun", false);
 								Microbot.getClient().addChatMessage(ChatMessageType.ENGINE, "", "Made with love by Acun.", "Acun", false);
@@ -363,16 +398,12 @@ public class FarmTreeRunScript extends Script {
     }
 
     private void bank(FarmTreeRunConfig config) {
+        items.clear();
         if (Rs2Bank.openBank() || Rs2Bank.walkToBank()) {
             sleepUntil(() -> !Rs2Player.isAnimating());
             if (!Rs2Bank.isOpen())
                 return;
             sleep(600, 2200);
-
-            if (!Rs2Inventory.isEmpty()) {
-                Rs2Bank.depositAll();
-                Rs2Inventory.waitForInventoryChanges(3000);
-            }
 
             if (config.useGraceful() && !alreadyWearingGraceful() && !Rs2Equipment.isNaked()) {
                 Rs2Bank.depositEquipment();
@@ -495,37 +526,68 @@ public class FarmTreeRunScript extends Script {
             items.add(new FarmingItem(ItemID.EARTH_RUNE, 30));
             items.add(new FarmingItem(ItemID.WATER_RUNE, 30));
 
-
 //              TODO: Need to handle what happens if a required item does not exist
 
-            // Loop through the items and perform withdrawals
+            // Deposit only what we don't need: keep desired ids and their noted variants
+            Set<Integer> keepIds = new HashSet<>();
             for (FarmingItem item : items) {
-                if (this.items.isEmpty())
-                    break;
+                keepIds.add(item.getItemId());
+                Integer linked = getLinkedId(item.getItemId());
+                if (linked != null) keepIds.add(linked);
+            }
+            if (!keepIds.isEmpty()) {
+                Rs2Bank.depositAllExcept(keepIds.toArray(new Integer[0]));
+                Rs2Inventory.waitForInventoryChanges(1500);
+            }
+
+            List<FarmingItem> unnotedItems = items.stream()
+                    .filter(i -> !i.isNoted())
+                    .collect(Collectors.toList());
+            List<FarmingItem> notedItems = items.stream()
+                    .filter(FarmingItem::isNoted)
+                    .collect(Collectors.toList());
+
+            {
+                boolean toggled = Rs2Bank.setWithdrawAsItem();
+                if (!toggled || !Rs2Bank.hasWithdrawAsItem()) {
+                    Microbot.log("Failed to toggle bank to item mode");
+                    shutdown();
+                    plugin.reportFinished("Failed to toggle bank withdraw mode", false);
+                    return;
+                }
+            }
+            for (FarmingItem item : new ArrayList<>(unnotedItems)) {
                 int itemId = item.getItemId();
-                int quantity = item.getQuantity();
-                boolean noted = item.isNoted();
-
-                if (quantity <= 0)
-                    continue;
-
-//              Handle items which require to be noted
-                if (noted && !Rs2Bank.hasWithdrawAsNote()) {
-                    Rs2Bank.setWithdrawAsNote();
-                    sleep(500, 1200);
-                } else if (!noted && Rs2Bank.hasWithdrawAsNote()) { // Disables 'Note' toggle
-                    Rs2Bank.setWithdrawAsItem();
-                }
-
-                if (quantity == 1) {
-                    checkIfPlayerHasItem(item);
-                    Rs2Bank.withdrawOne(itemId);
-                } else {
-                    checkIfPlayerHasItem(item);
-                    Rs2Bank.withdrawX(itemId, quantity);
-                }
-
+                int desiredQty = item.getQuantity();
+                int haveQty = Rs2Inventory.itemQuantity(itemId);
+                int needQty = Math.max(0, desiredQty - haveQty);
+                if (needQty <= 0) continue;
+                checkIfPlayerHasItem(itemId, needQty, item.isOptional());
+                if (!isRunning()) return;
+                if (needQty == 1) Rs2Bank.withdrawOne(itemId); else Rs2Bank.withdrawX(itemId, needQty);
                 sleep(250, 1200);
+            }
+
+            if (!notedItems.isEmpty()) {
+                boolean toggled = Rs2Bank.setWithdrawAsNote();
+                if (!toggled || !Rs2Bank.hasWithdrawAsNote()) {
+                    Microbot.log("Failed to toggle bank to noted mode");
+                    shutdown();
+                    plugin.reportFinished("Failed to toggle bank withdraw mode", false);
+                    return;
+                }
+                sleep(300, 900);
+                for (FarmingItem item : new ArrayList<>(notedItems)) {
+                    int itemId = item.getItemId();
+                    int desiredQty = item.getQuantity();
+                    int haveQty = getInventoryQuantityIncludingLinked(itemId);
+                    int needQty = Math.max(0, desiredQty - haveQty);
+                    if (needQty <= 0) continue;
+                    checkIfPlayerHasItem(itemId, needQty, item.isOptional());
+                    if (!isRunning()) return;
+                    if (needQty == 1) Rs2Bank.withdrawOne(itemId); else Rs2Bank.withdrawX(itemId, needQty);
+                    sleep(250, 1200);
+                }
             }
 
             Rs2Bank.closeBank();
@@ -540,6 +602,14 @@ public class FarmTreeRunScript extends Script {
             shutdown();
             plugin.reportFinished("Inventory failed", false);
 
+        }
+    }
+
+    private void checkIfPlayerHasItem(int itemId, int quantity, boolean optional) {
+        if (!Rs2Bank.hasItem(new int[]{itemId}, quantity) && !optional) {
+            Microbot.showMessage("Not enough items: " + Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getItemDefinition(itemId).getName()) + ". Need " + quantity + ". Shut down.");
+            shutdown();
+            plugin.reportFinished("Inventory failed", false);
         }
     }
 
@@ -839,7 +909,8 @@ public class FarmTreeRunScript extends Script {
                 config::lumbridgeTreePatch,
                 config::taverleyTreePatch,
                 config::varrockTreePatch,
-                config::farmingGuildTreePatch
+                config::farmingGuildTreePatch,
+                config::auburnTreePatch
         );
 
         // Filter the patches to include only those that return true
@@ -853,7 +924,8 @@ public class FarmTreeRunScript extends Script {
         List<BooleanSupplier> allHardTreePatches = List.of(
                 config::fossilTreePatch,
                 config::fossilTreePatch,
-                config::fossilTreePatch
+                config::fossilTreePatch,
+                config::aviumSavannahHardwoodPatch
         );
 
         // Filter the patches to include only those that return true
@@ -870,7 +942,8 @@ public class FarmTreeRunScript extends Script {
                 config::farmingGuildFruitTreePatch,
                 config::lletyaFruitTreePatch,
                 config::gnomeStrongholdFruitTreePatch,
-                config::treeGnomeVillageFruitTreePatch
+                config::treeGnomeVillageFruitTreePatch,
+                config::kastoriFruitTreePatch
         );
 
         // Filter the patches to include only those that return true
@@ -902,6 +975,23 @@ public class FarmTreeRunScript extends Script {
         String name = Rs2GameObject.getObjectComposition(patch.getId()).getName().toLowerCase();
         return name.endsWith("patch");
     }
+
+    private Integer getLinkedId(int id) {
+        return Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            ItemComposition comp = Microbot.getItemManager().getItemComposition(id);
+            int linked = comp.getLinkedNoteId();
+            return linked > 0 ? linked : null;
+        }).orElse(null);
+    }
+
+    private int getInventoryQuantityIncludingLinked(int id) {
+        int qty = Rs2Inventory.itemQuantity(id);
+        Integer linked = getLinkedId(id);
+        if (linked != null) qty += Rs2Inventory.itemQuantity(linked);
+        return qty;
+    }
+
+    
 
     private static int getSaplingToUse(Patch patch, FarmTreeRunConfig config) {
         if (patch == Patch.FOSSIL_TREE_PATCH_A || patch == Patch.FOSSIL_TREE_PATCH_B || patch == Patch.FOSSIL_TREE_PATCH_C ) {
